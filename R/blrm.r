@@ -9,7 +9,6 @@
 ##' [blrm()] also handles single-level hierarchical random effects models for the case when there are repeated measurements per subject which are reflected as random intercepts, and a different experimental model that allows for AR(1) serial correlation within subject.  For both setups, a `cluster` term in the model signals the existence of subject-specific random effects.
 ##'
 ##' See <https://hbiostat.org/R/rms/blrm.html> for multiple examples with results.
-##' @title blrm
 ##' @param formula a R formula object that can use `rms` package enhancements such as the restricted interaction operator
 ##' @param ppo formula specifying the model predictors for which proportional odds is not assumed
 ##' @param cppo a function that if present causes a constrained partial PO model to be fit.  The function specifies the values in the Gamma vector in Peterson and Harrell (1990) equation (6).  To make posterior sampling better behaved, the function should be scaled and centered.  This is done by wrapping `cppo` in a function that scales the `cppo` result before return the vector value.  See the `normcco` argument for how to prevent this.  The default normalization is based on the mean and standard deviation of the function values over the distribution of observed Y.  For getting predicted values and estimates post-[blrm()], `cppo` must not reference any functions that are not available at such later times.
@@ -19,7 +18,9 @@
 ##' @param na.action default is `na.delete` to remove missings and report on them
 ##' @param priorsd vector of prior standard deviations.  If the vector is shorter than the number of model parameters, it will be repeated until the length equals the number of parametertimes.
 ##' @param priorsdppo vector of prior standard deviations for non-proportional odds parameters.  As with `priorsd` the last element is the only one for which the SD corresponds to the original data scale.
+##' @param iprior specifies whether to use a Dirichlet distribution for the cell probabilities, which induce a more complex prior distribution for the intercepts (`iprior=0`, the default), non-informative priors (`iprior=1`) directly on the intercept parameters,  or to directly use a t-distribution with 3 d.f. and scale parameter `ascale` (`iprior=2`). 
 ##' @param conc the Dirichlet distribution concentration parameter for the prior distribution of cell probabilities at covariate means.  The default is the reciprocal of 0.8 + 0.35 max(k, 3) where k is the number of Y categories.  The default is chosen to make the posterior mean of the intercepts more closely match the MLE.  For optimizing, the concentration parameter is always 1.0 to obtain results very close to the MLE for providing the posterior mode.
+##' @param ascale scale parameter for the t-distribution for priors for the intercepts if `iprior=2`, defaulting to 1.0
 ##' @param psigma defaults to 1 for a half-t distribution with 4 d.f., location parameter `rsdmean` and scale parameter `rsdsd`.  Set `psigma=2` to use the exponential distribution.
 ##' @param rsdmean the assumed mean of the prior distribution of the standard deviation of random effects.  When `psigma=2` this is the mean of an exponential distribution and defaults to 1.  When `psigma=1` this is the mean of the half-t distribution and defaults to zero.
 ##' @param rsdsd applies only to `psigma=1` and is the scale parameter for the half t distribution for the SD of random effects, defaulting to 1.
@@ -68,8 +69,8 @@
 blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
                  data=environment(formula), subset, na.action=na.delete,
 								 priorsd=rep(100, p), priorsdppo=rep(100, pppo),
-                 conc=1./(0.8 + 0.35 * max(k, 3)),
-                 psigma=1, rsdmean=if(psigma == 1) 0 else 1,
+                 iprior=0, conc=1./(0.8 + 0.35 * max(k, 3)),
+                 ascale=1., psigma=1, rsdmean=if(psigma == 1) 0 else 1,
                  rsdsd=1, normcppo=TRUE,
 								 iter=2000, chains=4, refresh=0,
                  progress=if(refresh > 0) 'stan-progress.txt' else '',
@@ -101,6 +102,8 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   prevhash <- NULL
   if(length(file) && file.exists(file)) {
     prevfit  <- readRDS(file)
+    if(length(prevfit$cppo))
+      prevfit$cppo <- eval(parse(text=prevfit$cppo))
     prevhash <- prevfit$datahash
     }
 
@@ -238,10 +241,24 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   priorsd <- rep(priorsd, length=p)
   ## Unconstrained PPO model does not handle censoring
   if(k > 2 && length(ppo) && ! length(cppo)) Y <- as.integer(Y[, 1])
-	d <- list(X=Xs,
-            y=Y,
-            N=n, p=p, k=k, conc=conc,
-            sds=as.array(priorsd))
+  ## Go to trouble of keeping list elements in order from previous
+  ## version so that existing models fitted with iprior=0 will not
+  ## have to be re-run
+	d <- if(iprior == 0)
+         list(X=Xs,
+              y=Y,
+              N=n, p=p, k=k, conc=conc,
+              sds=as.array(priorsd))
+       else
+         list(X=Xs,
+              y=Y,
+              N=n, p=p, k=k, iprior=iprior, ascale=ascale,
+              sds=as.array(priorsd))
+
+  ## Need to negate alphas from Stan if use flat or t-distribution prior
+  ## for intercepts (iprior > 0)
+  
+  alphasign <- if(iprior == 0) 1. else -1.
 
   if(length(cppo)) {
     if(normcppo) {
@@ -282,12 +299,13 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
 	if(any(is.na(Xs)) | any(is.na(Y))) stop('program logic error')
 
   unconstrainedppo <- pppo > 0 && length(cppo) == 0
-  fitter <- if(unconstrainedppo) 'lrmcppo' else 'lrmconppo'
+  fitter <- if(unconstrainedppo) 'lrmcppo'
+            else if(iprior == 0) 'lrmconppo' else 'lrmconppot'
   if(unconstrainedppo) d$pposcore <- d$lpposcore <- NULL
   
   if(standata) return(d)
 
-  mod <- stanmodels[[fitter]]
+  mod      <- stanmodels[[fitter]]
   stancode <- rstan::get_stancode(mod)
 
   ## See if previous fit had identical inputs and Stan code
@@ -322,7 +340,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
       al     <- nam[grep('alpha\\[', nam)]
       be     <- nam[grep('beta\\[',  nam)]
       ta     <- nam[grep('tau\\[',   nam)]
-      alphas <- parm[al]
+      alphas <- alphasign * parm[al]
       betas  <- parm[be]
       betas  <- matrix(betas, nrow=1) %*% t(wqrX$Rinv)
       names(betas)  <- atr$colnames
@@ -348,7 +366,8 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
         names(taus) <- namtau
       }
       names(alphas) <- if(nrp == 1) 'Intercept' else paste0('y>=', ylev[-1])
-      opt <- list(coefficients=c(alphas, betas, taus), cppo=cppo, zbar=zbar,
+      opt <- list(coefficients=c(alphas, betas, taus),
+                  cppo=cppo, zbar=zbar,
                   sigmag=parm[sigmagname], deviance=-2 * g$value,
                   return_code=g$return_code, hessian=g$hessian)
       }
@@ -373,7 +392,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   ga  <- nam[grep('gamma\\[', nam)]
   draws  <- as.matrix(g)
   ndraws <- nrow(draws)
-	alphas <- draws[, al, drop=FALSE]
+	alphas <- alphasign * draws[, al, drop=FALSE]
 	betas  <- draws[, be, drop=FALSE]
   betas  <- betas %*% t(wqrX$Rinv)
 
@@ -484,7 +503,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
 							draws=draws, omega=omega,
               gammas=gammas, eps=epsmed,
               param=param, priorsd=priorsd, priorsdppo=priorsdppo,
-              psigma=psigma, rsdmean=rsdmean, rsdsd=rsdsd, conc=conc,
+              psigma=psigma, rsdmean=rsdmean, rsdsd=rsdsd, iprior=iprior,
               notransX=notransXn, notransZ=notransZn, xqrsd=xqrsd,
               N=n, Ncens=Ncens, p=p, pppo=pppo, cppo=cppo, yname=yname,
               ylevels=ylev, freq=numy,
@@ -501,8 +520,19 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
                 list(cluster=if(x) cluster else NULL, n=Nc, name=clustername),
 							opt=opt, diagnostics=diagnostics,
               iter=iter, chains=chains, stancode=stancode, datahash=datahash)
+  if(iprior == 0) res$conc   <- conc
+  if(iprior == 2) res$ascale <- ascale
 	class(res) <- c('blrm', 'rmsb', 'rms')
-  if(length(file)) saveRDS(res, file, compress='xz')
+  if(length(file)) {
+    ## When the fit object is serialized by saveRDS (same issue with save()),
+    ## any function in the fit object will have a huge environment stored
+    ## with it.  So instead store the function as character strings.
+    if(length(cppo)) {
+      res2      <- res
+      res2$cppo <- deparse(cppo)
+      saveRDS(res2, file, compress='xz')
+    } else saveRDS(res, file, compress='xz')
+  }
   res$rstan <- g
 	res
 }
@@ -511,7 +541,6 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
 ##'
 ##' For a binary or ordinal logistic regression fit from [blrm()], computes several indexes of predictive accuracy along with highest posterior density intervals for them.  Optionally plots their posterior densities.
 ##' When there are more than two levels of the outcome variable, computes Somers' Dxy and c-index on a random sample of 10,000 observations.
-##' @title blrmStats
 ##' @param fit an object produced by [blrm()]
 ##' @param ns number of posterior draws to use in the calculations (default is 400)
 ##' @param prob HPD interval probability (default is 0.95)
@@ -636,7 +665,6 @@ blrmStats <- function(fit, ns=400, prob=0.95, pl=FALSE,
 ##' Print Details for `blrmStats` Predictive Accuracy Measures
 ##'
 ##' Prints results of `blrmStats` with brief explanations
-##' @title print.blrmStats
 ##' @param x an object produced by `blrmStats`
 ##' @param dec number of digits to round indexes
 ##' @param ... ignored
@@ -672,7 +700,6 @@ print.blrmStats <- function(x, dec=3, ...) {
 ##' Print [blrm()] Results
 ##'
 ##' Prints main results from [blrm()] along with indexes and predictive accuracy and their highest posterior density intervals computed from `blrmStats`.
-##' @title print.blrm
 ##' @param x object created by [blrm()]
 ##' @param dec number of digits to print to the right of the decimal
 ##' @param coefs specify `FALSE` to suppress printing parameter estimates, and in integer k to print only the first k
@@ -695,10 +722,25 @@ print.blrm <- function(x, dec=4, coefs=TRUE, intercepts=x$non.slopes < 10,
   latex <- prType() == 'latex'
 
   if(! length(title))
-    title <- paste(if(length(x$cppo)) 'Constrained',
-                   if(x$pppo > 0)     'Partial',
-                   if(length(x$ylevels) > 2) 'Proportional Odds Ordinal',
-                                      'Logistic Model')
+    title <- paste0('Bayesian',
+                    if(length(x$cppo))        ' Constrained',
+                    if(x$pppo > 0)            ' Partial',
+                    if(length(x$ylevels) > 2) ' Proportional Odds Ordinal',
+                    ' Logistic Model')
+  iprior <- x$iprior
+  if(! length(iprior)) iprior <- 0   ## backward compatibility
+  iprior <- as.character(iprior)
+  conc   <- x[['conc']]
+  ascale <- x$ascale
+  subtitle <-
+    switch(iprior,
+           '0' = paste('Dirichlet Priors With Concentration Parameter',
+                     round(conc, 3), 'for Intercepts'),
+           '1' = 'Non-informative Priors for Intercepts',
+           '2' = paste('t-Distribution Priors With 3 d.f. and Scale Parameter',
+                     round(ascale, 2), 'for Intercepts')
+           )
+  
   z <- list()
   k <- 0
 
@@ -787,58 +829,113 @@ print.blrm <- function(x, dec=4, coefs=TRUE, intercepts=x$non.slopes < 10,
   footer <- if(length(x$notransX))
               paste('The following parameters remained separate (where not orthogonalized) during model fitting so that prior distributions could be focused explicitly on them:',
                     paste(x$notransX, collapse=', '))
-  rms::prModFit(x, title=title, z, digits=dec, coefs=coefs, footer=footer, ...)
+  rms::prModFit(x, title=title, z, digits=dec, coefs=coefs, footer=footer,
+                subtitle=subtitle, ...)
 }
 
 ##' Make predictions from a [blrm()] fit
 ##'
 ##' Predict method for [blrm()] objects
-##' @title predict.blrm
-##' @param object,...,type,se.fit,codes see [predict.lrm]
-##' @param posterior.summary set to `'median'` or `'mode'` to use posterior median/mode instead of mean
-##' @param cint probability for highest posterior density interval
+##' @param object,...,type,se.fit,codes see [predict.lrm()]
+##' @param kint	This is only useful in a multiple intercept model such as the ordinal	logistic model. There to use to second of three intercepts, for example,	specify `kint=2`. The default is the middle	intercept corresponding to the median `y`.  You can specify `ycut` instead, and the intercept	corresponding to Y >= `ycut` will be used for `kint`.
+##' @param ycut for an ordinal model specifies the Y cutoff to use in evaluating departures from proportional odds, when the constrained partial proportional odds model is used.  When omitted, `ycut`	is implied by `kint`.  The only time it is absolutely mandatory	to specify `ycut` is when computing an effect (e.g., odds ratio) at a level of the response variable that did not occur in the data.	This would only occur when the `cppo` function given to	`blrm` is a continuous function.  If `type='x'` and neither `kint` nor `ycut` are given, the partial PO part of the design matrix is not multiplied by the `cppo` function.  If `type='x'`, the number of predicted observations is 1, `ycut` is longer than 1, and `zcppo` is `TRUE`, predictions are duplicated to the length of `ycut` as it is assumed that the user wants to see the effect of varying `ycut`, e.g., to see cutoff-specific odds ratios.
+##' @param zcppo applies only to `type='x'` for a constrained partial PO model.  Set to `FALSE` to prevent multiplication of Z matrix by `cppo(ycut)`.
+##' @param fun a function to evaluate on the linear predictor, e.g. a function created by [Mean()] or [Quantile()]
+##' @param funint set to `FALSE` if `fun` is not a function such as the result of [Mean()], [Quantile()], or [ExProb()] that	contains an `intercepts` argument
+##' @param posterior.summary set to `'median'` or `'mode'` to use posterior median/mode instead of mean. For some `type`s set to `'all'` to compute the needed quantity for all posterior draws, and return one more dimension in the array.
+##' @param cint probability for highest posterior density interval.  Set to `FALSE` to suppress calculation of the interval.
 ##' @return a data frame,  matrix, or vector with posterior summaries for the requested quantity, plus an attribute `'draws'` that has all the posterior draws for that quantity.  For `type='fitted'` and `type='fitted.ind'` this attribute is a 3-dimensional array representing draws x observations generating predictions x levels of Y.
 ##' @examples
 ##' \dontrun{
 ##'   f <- blrm(...)
 ##'   predict(f, newdata, type='...', posterior.summary='median')
 ##' }
-##' @seealso [predict.lrm]
+##' @seealso [predict.lrm()]
 ##' @author Frank Harrell
+##' @md
 ##' @export
-predict.blrm <- function(object, ...,
-		type=c("lp","fitted","fitted.ind","mean","x","data.frame",
-		  "terms", "cterms", "ccterms", "adjto", "adjto.data.frame",
-      "model.frame"),
-		se.fit=FALSE, codes=FALSE,
-    posterior.summary=c('mean', 'median'), cint=0.95) {
+predict.blrm <-
+  function(object, ...,
+           kint=NULL, ycut=NULL, zcppo=TRUE,
+           fun=NULL, funint=TRUE,
+           type=c("lp","fitted","fitted.ind","mean","x","data.frame",
+                  "terms", "cterms", "ccterms", "adjto", "adjto.data.frame",
+                  "model.frame"),
+           se.fit=FALSE, codes=FALSE,
+           posterior.summary=c('mean', 'median', 'all'), cint=0.95)
+{
 
   type              <- match.arg(type)
   posterior.summary <- match.arg(posterior.summary)
 
   if(se.fit) warning('se.fit does not apply to Bayesian models')
+  if(posterior.summary == 'all' && ! missing(cint) && cint)
+    message('cint ignored when posterior.summary="all"')
+
+  kintgiven <- length(kint) > 0
+  iref <- object$interceptRef
+  if(! kintgiven) kint <- iref
+
+  ylevels   <- object$ylevels
+  ycutgiven <- length(ycut) > 0
+  if(kintgiven && ycutgiven) stop('may only specify one of kint, ycut')
+  if(! ycutgiven) ycut <- ylevels[kint + 1]
+  if(ycutgiven) {
+    if(type == 'lp' && length(ycut) > 1)
+      stop('ycut may only be a scalar for type="lp"')
+    kint <- if(all.is.numeric(ylevels)) which(ylevels == ycut[1]) - 1
+            else max((1 : length(ylevels))[ylevels <= ycut[1]]) - 1
+    }
 
   pppo <- object$pppo
-#  if(pppo > 0 && (type %in% c('lp', 'mean', 'fitted', 'fitted.ind')))
-#    stop('type not yet implemented for partial proportional odds models')
-
-  if(type %in% c('lp', 'x', 'data.frame', 'terms', 'cterms', 'ccterms',
+  if(pppo == 0) zcppo <- FALSE
+  
+  if(type == 'x' && pppo == 0)
+    return(predictrms(object, ..., type='x'))
+  
+  if(type %in% c('data.frame', 'terms', 'cterms', 'ccterms',
                  'adjto', 'adjto.data.frame', 'model.frame'))
-    return(rms::predictrms(object,...,type=type,
-                      posterior.summary=posterior.summary))
+    return(predictrms(object, ..., type=type))
 
-  if(type %nin% c('mean', 'fitted', 'fitted.ind'))
-    stop('types other than mean, fitted, fitted.ind not yet implemented')
+  if(pppo > 0) {
+    cppo <- object$cppo
+    if(! length(cppo))
+      stop('only constrained partial PO models are implemented at present')
+  }
+  
+  X     <- predictrms(object, ..., type='x')
+  rnam  <- rownames(X)
+  n     <- nrow(X)
+
+  if(pppo > 0) {
+    Z  <- predictrms(object, ..., type='x', second=TRUE)
+    nz <- nrow(Z)
+    if(n != nz) stop('program logic error 4')
+    if(type == 'x' && zcppo) {
+      ly <- length(ycut)
+      if(nz == 1 && ly > 1) {
+        X <- X[rep(1, ly),, drop=FALSE]
+        Z <- Z[rep(1, ly),, drop=FALSE]
+        }
+      else
+        if(ly %nin% c(1, nz))
+          stop('ycut must be of length 1 or the number of requested predictions')
+      nz   <- nrow(Z)
+      ycut <- rep(ycut, length=nz)
+      for(i in 1 : nz) Z[i,] <- Z[i,] * cppo(ycut[i])
+      }
+    if(type == 'x') return(cbind(X, Z))
+  }
 
   ns      <- object$non.slopes
   tauinfo <- object$tauInfo
-  cppo    <- object$cppo
 
-  if(ns == 1 & type == "mean")
-    stop('type="mean" makes no sense with a binary response')
+  if(ns == 1 && length(fun) && funint)
+    stop('specifying fun= with funint=TRUE makes no sense with a binary response')
 
   draws   <- object$draws
   ndraws  <- nrow(draws)
+  p       <- ncol(draws)
   cn      <- colnames(draws)
   ints    <- draws[, 1 : ns, drop=FALSE]
   betanam <- setdiff(cn, c(cn[1:ns], tauinfo$name))
@@ -846,73 +943,111 @@ predict.blrm <- function(object, ...,
   if(pppo > 0) {
     taunam <- tauinfo$name
     taus   <- draws[, taunam, drop=FALSE]
+  }
+
+  postsum <- switch(posterior.summary, mean=mean, median=median,
+                    all=function(z) z)
+
+  if(type == 'lp') {
+    ## If linear predictor is requested, only one intercept applies and
+    ## if the HPD interval is not requested, don't need to keep draws after
+    ## getting posterior summaries of parameters
+    ## Note that fun= that is not a function of all the intercepts can be
+    ## simply applied to linear predictor at reference intercept
+    if(length(ycut) %nin% c(1, n))
+      stop('ycut must be of length 1 or the number of requested predictions')
+    ycut <- rep(ycut, length=n)
+
+    draws1int <- draws[, c(kint, (ns + 1) : p), drop=FALSE]
+    
+    if(posterior.summary != 'all' &&
+       (! length(fun) || ! funint) & ! cint) {
+      if(pppo > 0) {
+        for(i in 1 : n) Z[i,] <- Z[i,] * cppo(ycut[i])
+        X     <- cbind(X, Z)
+      }
+      cof   <- apply(draws1int, 2, postsum)
+      lp    <- matxv(X, cof)
+      if(length(fun)) lp <- fun(lp)
+      return(lp)
     }
 
-  X <- rms::predictrms(object, ..., type='x',
-                       posterior.summary=posterior.summary)
-  if(pppo > 0) {
-    Z <- X$z
-    X <- X$x
+    ## Compute lp and for all posterior draws to create an ndraws x n matrix
+    if(! length(fun) || ! funint ) {
+      if(pppo > 0) {
+        for(i in 1 : n) Z[i,] <- Z[i,] * cppo(ycut[i])
+        X <- cbind(X, Z)
+      }
+      lp   <- t(matxv(X, draws1int, bmat=TRUE))
+      if(length(fun)) lp <- fun(lp)
+      if(posterior.summary == 'all') return(lp)
+      lpsum <- apply(lp, 2, postsum)
+      if(! cint) return(lpsum)
+      
+      ## When not 'all' the no-cint case was handled above.  Compute HPD
+      ## intervals for each prediction
+      hpd   <- apply(lp, 2, HPDint, prob=cint)
+      return(list(linear.predictors=lpsum, lower=hpd[1,], upper=hpd[2,]))
     }
-  rnam  <- rownames(X)
-  n     <- nrow(X)
+
+    ## What's left is a complex linear predictor request, i.e., for
+    ## a function that must use all the intercepts from each draw
+    
+    xb   <- t(matxv(X, cbind(ints[, iref], betas), bmat=TRUE))
+    ztau <- if(pppo > 0) t(matxv(Z, taus, bmat=TRUE))
+    r    <- matrix(NA, nrow=ndraws, ncol=n)
+    for(i in 1 : ndraws)
+      r[i, ] <- fun(xb[i, ], lptau=ztau[i, ], intercepts=ints[i, ], codes=codes)
+    if(posterior.summary == 'all') return(r)
+    rsum <- apply(r, 2, postsum)
+    if(! cint) return(rsum)
+    hpd  <- apply(r, 2, HPDint, prob=cint)
+    r <- list(linear.predictors=rsum, lower=hpd[1,], upper=hpd[2,])
+    return(r)
+  }
+
+  ## What's left is type=fitted, fitted.ind
 
   ## Get cumulative probability function used
-  link  <- object$link
+  link    <- object$link
   cumprob <- rms::probabilityFamilies[[link]]$cumprob
 
   if(ns == 1) return(cumprob(ints + betas %*% t(X)))  # binary logistic model
 
   cnam  <- cn[1:ns]
-  ylev  <- object$ylevels
   # First intercept corresponds to second distinct Y value
-  if(length(cppo)) cppos <- cppo(ylev[-1])
+  if(pppo > 0) cppos <- cppo(ylevels[-1])
 
-  if(type == 'mean') {
-    if(codes) vals <- 1:length(ylev)
-    else {
-      vals <- as.numeric(ylev)
-      if(any(is.na(vals)))
-         stop('values of response levels must be numeric for type="mean" and codes=FALSE')
-    }
-  }
-
-  ynam <- paste(object$yname, "=", ylev, sep="")
+  ynam <- paste(object$yname, "=", ylevels, sep="")
   PP   <- array(NA, dim=c(ndraws, n, ns),
                 dimnames=list(NULL, rnam, cnam))
   PPeq <- array(NA, dim=c(ndraws, n, ns + 1),
                 dimnames=list(NULL, rnam, ynam))
 
-  M  <- matrix(NA, nrow=ndraws, ncol=n, dimnames=list(NULL, rnam))
-
   for(i in 1 : ndraws) {
-    inti    <- ints[i,]               # alphas for ith draw
-    betai   <- betas[i,,drop=FALSE]
+    inti    <- ints[i, ]               # alphas for ith draw
+    betai   <- betas[i,, drop=FALSE]
+    xb      <- X %*% t(betai)          # n x 1
     if(pppo > 0) {
       taui <- taus[i,, drop=FALSE]
-      zt   <- taui %*% t(Z)           # 1xq qxn = 1xn
-      ## Convenient to think of deviations from proportional odds as
-      ## changes in intercepts
-      inti <- inti + sapply(cppos, '*', zt)
-      }
-    xb      <- betai %*% t(X)         # 1xn
-
-    ## sapply(U (u-vector), '+', V (v-vector)) = v x u matrix
-    ## column j = all V with U[j] added
-    xb      <- sapply(inti, "+", xb)  # n x ns matrix, col j adds intercept j
-
-    P       <- cumprob(xb)            # preserves matrix;  1 x nrow(X)
-    PP[i,,] <- P
-    if(type != 'fitted') {
-      Peq       <- cbind(1, P) - cbind(P, 0)
-      PPeq[i,,] <- Peq
-      if(type == 'mean') M[i, ] <- drop(Peq %*% vals)
-      }
+      zt   <- Z %*% t(taui)            # n x 1
+    }
+    for(j in 1 : n) {
+      ep <- inti + xb[j]    # 1 x ns
+      if(pppo > 0) ep <- ep + cppos * zt[j]
+      ep <- cumprob(ep)
+      PP[i, j, ] <- ep
+      if(type == 'fitted.ind') PPeq[i, j, ] <- c(1., ep) - c(ep, 0.)
+    }
   }
+  
+  if(posterior.summary == 'all')
+    return(switch(type,
+                  fitted     = PP,
+                  fitted.ind = PPeq))
 
-  ps <- switch(posterior.summary, mean=mean, median=median)
   h <- function(x) {
-    s  <- ps(x)
+    s  <- postsum(x)
     ci <- HPDint(x, cint)
     r  <- c(s, ci)
     names(r)[1] <- posterior.summary
@@ -939,24 +1074,22 @@ predict.blrm <- function(object, ...,
   }
 
   ## Similar for a 2-d array
-  s2 <- function(x) {
-    d <- expand.grid(x = rnam, stat=NA, Lower=NA, Upper=NA,
-                     stringsAsFactors=FALSE)
-    for(i in 1 : nrow(d)) {
-      u <- h(x[, d$x[i]])
-      d$stat[i]  <- u[1]
-      d$Lower[i] <- u['Lower']
-      d$Upper[i] <- u['Upper']
-    }
-    names(d)[2] <- Hmisc::upFirst(posterior.summary)
-    d
-  }
-
+  #s2 <- function(x) {
+  #  d <- expand.grid(x = rnam, stat=NA, Lower=NA, Upper=NA,
+  #                   stringsAsFactors=FALSE)
+  #  for(i in 1 : nrow(d)) {
+  #    u <- h(x[, d$x[i]])
+  #    d$stat[i]  <- u[1]
+  #    d$Lower[i] <- u['Lower']
+  #    d$Upper[i] <- u['Upper']
+  #  }
+  #  names(d)[2] <- Hmisc::upFirst(posterior.summary)
+  #  d
+  #}
 
   r <- switch(type,
-              fitted     =  structure(s3(PP), draws=PP),
-              fitted.ind =  structure(s3(PPeq), draws=PPeq),
-              mean       =  structure(s2(M), draws=M))
+              fitted     =  structure(s3(PP),   draws=PP),
+              fitted.ind =  structure(s3(PPeq), draws=PPeq))
 
   class(r) <- c('predict.blrm', class(r))
   r
@@ -965,7 +1098,6 @@ predict.blrm <- function(object, ...,
 ##' Print Predictions for [blrm()]
 ##'
 ##' Prints the summary portion of the results of `predict.blrm`
-##' @title print.predict.blrm
 ##' @param x result from `predict.blrm`
 ##' @param digits number of digits to round numeric results
 ##' @param ... ignored
@@ -982,7 +1114,6 @@ print.predict.blrm <- function(x, digits=3, ...) {
 ##' Function Generator for Mean Y for [blrm()]
 ##'
 ##' Creates a function to turn a posterior summarized linear predictor lp (e.g. using posterior mean of intercepts and slopes) computed at the reference intercept into e.g. an estimate of mean Y using the posterior mean of all the intercept.  `lptau` must be provided when call the created function if the model is a partial proportional odds model.
-##' @title Mean.blrm
 ##' @param object a [blrm()] fit
 ##' @param codes if `TRUE`, use the integer codes \eqn{1,2,\ldots,k} for the \eqn{k}-level response in computing the predicted mean response.
 ##' @param posterior.summary defaults to posterior mean; may also specify `"median"`.  Must be consistent with the summary used when creating `lp`.
@@ -1017,7 +1148,7 @@ Mean.blrm <- function(object, codes=FALSE,
     if(length(lptau)) {
       cppos <- cppo(ylevels[-1])   # first intercept corresponds to 2nd Y
       for(j in 1 : ns)
-        xb[, j] <- xb[, j] + cppos[j] * lptau[j]
+        xb[, j] <- xb[, j] + cppos[j] * lptau
       }
 
     if(codes) ylevels <- 1 : length(ylevels)
@@ -1046,7 +1177,6 @@ Mean.blrm <- function(object, codes=FALSE,
 ##' Function Generator for Quantiles of Y for [blrm()]
 ##'
 ##' Creates a function to turn a posterior summarized linear predictor lp (e.g. using posterior mean of intercepts and slopes) computed at the reference intercept into e.g. an estimate of a quantile of Y using the posterior mean of all the intercepts.  `lptau` must be provided when call the created function if the model is a partial proportional odds model.
-##' @title Quantile.blrm
 ##' @param object a [blrm()] fit
 ##' @param codes if `TRUE`, use the integer codes \eqn{1,2,\ldots,k} for the \eqn{k}-level response in computing the quantile
 ##' @param posterior.summary defaults to posterior mean; may also specify `"median"`.  Must be consistent with the summary used when creating `lp`.
@@ -1125,7 +1255,6 @@ Quantile.blrm <- function(object, codes=FALSE,
 ##' Function Generator for Exceedance Probabilities for [blrm()]
 ##'
 ##' For a [blrm()] object generates a function for computing the	estimates of the function Prob(Y>=y) given one or more values of the linear predictor using the reference (median) intercept.  This function can optionally be evaluated at only a set of user-specified	`y` values, otherwise a right-step function is returned.  There is a plot method for plotting the step functions, and if more than one linear predictor was evaluated multiple step functions are drawn. `ExProb` is especially useful for `nomogram()`.  The linear predictor argument is a posterior summarized linear predictor lp (e.g. using posterior mean of intercepts and slopes) computed at the reference intercept.  `lptau` must be provided when call the created function if the model is a partial proportional odds model.
-##' @title ExProb.blrm
 ##' @param object a [blrm()] fit
 ##' @param posterior.summary defaults to posterior mean; may also specify `"median"`.  Must be consistent with the summary used when creating `lp`.
 ##' @param ... ignored
@@ -1153,7 +1282,7 @@ ExProb.blrm <- function(object,
                 y=NULL, intercepts=numeric(0),
                 ylevels=numeric(0),
                 interceptRef=integer(0), cppo=NULL,
-                cumprob=NULL, yname=NULL) {
+                cumprob=NULL, yname=NULL, codes=NULL) {
     lp <- lp - intercepts[interceptRef]
 
     n <- length(lp)
@@ -1186,14 +1315,14 @@ ExProb.blrm <- function(object,
                      y=NULL, intercepts=intercepts,
                      ylevels=ylevels,
                      interceptRef=object$interceptRef,
-                     cppo=object$cppo, cumprob=cumprob, yname=object$yname)
+                     cppo=object$cppo, cumprob=cumprob, yname=object$yname,
+                     codes=numeric(0))  # codes not used for ExProb
   f
 }
 
 ##' Fetch Partial Proportional Odds Parameters
 ##'
 ##' Fetches matrix of posterior draws for partial proportional odds parameters (taus) for a given intercept.  Can also form a matrix containing both regular parameters and taus, or for just non-taus.  For the constrained partial proportional odds model the function returns the appropriate `cppo` function value multiplied by tau (tau being a vector in this case and not a matrix).
-##' @title tauFetch
 ##' @param fit an object created by [blrm()]
 ##' @param intercept integer specifying which intercept to fetch
 ##' @param what specifies the result to return
@@ -1247,7 +1376,6 @@ tauFetch <- function(fit, intercept, what=c('tau', 'nontau', 'both')) {
 ##' Censored Ordinal Variable
 ##'
 ##' Creates a 2-column integer matrix that handles left- right- and interval-censored ordinal or continuous values for use in [blrm()].  A pair of values `[a, b]` represents an interval-censored value known to be in the interval `[a, b]` inclusive of `a` and `b`.  It is assumed that all distinct values are observed as uncensored for at least one observation.  When both input variables are `factor`s it is assume that the one with the higher number of levels is the one that correctly specifies the order of levels, and that the other variable does not contain any additional levels.  If the variables are not `factor`s it is assumed their original values provide the orderings.  Since all values that form the left or right endpoints of an interval censored value must be represented in the data, a left-censored point is is coded as `a=1` and a right-censored point is coded as `b` equal to the maximum observed value.  If the maximum observed value is not really the maximum possible value, everything still works except that predictions involving values above the highest observed value cannot be made.  As with most censored-data methods, [blrm()] assumes that censoring is independent of the response variable values that would have been measured had censoring not occurred.
-##' @title Ocens
 ##' @param a vector representing a `factor`, numeric, or alphabetically ordered character strings
 ##' @param b like `a`.  If omitted, it copies `a`, representing nothing but uncensored values
 ##' @return a 2-column integer matrix of class `"Ocens"` with an attribute `levels` (ordered).  When the original variables were `factor`s, these are factor levels, otherwise are numerically or alphabetically sorted distinct (over `a` and `b` combined) values.  When the variables are not factors and are numeric, another attribute `median` is also returned.  This is the median of the uncensored values.  When the variables are factor or character, the median of the integer versions of variables for uncensored observations is returned as attribute `mid`.  A final attribute `freq` is the vector of frequencies of occurrences of all uncensored values.  `freq` aligns with `levels`.
@@ -1299,7 +1427,6 @@ Ocens <- function(a, b=a) {
 ##' Convert `Ocens` Object to Data Frame to Facilitate Subset
 ##'
 ##' Converts an `Ocens` object to a data frame so that subsetting will preserve all needed attributes
-##' @title as.data.frame.Ocens
 ##' @param x an `Ocens` object
 ##' @param row.names optional vector of row names
 ##' @param optional set to `TRUE` if needed

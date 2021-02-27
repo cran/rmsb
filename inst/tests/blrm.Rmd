@@ -10,6 +10,7 @@ output:
     gallery: true
     highlight: tango
     use_bookdown: true
+    embed_fonts: false
 bibliography: harrelfe.bib
 csl: apa-annotated-bibliography.csl
 link-citations: yes
@@ -218,22 +219,14 @@ tapply(calpro, endo, median)
 # Now compute estimates and 0.95 HPD intervals assuming PO
 # The first method is exact
 newdata <- data.frame(endo=levels(endo))
-predict(bcalpro, newdata, type='mean')
-# In the future type='quantile' will be added to predict
-# Compute posterior mean/median estimates a different way.
-# These are approximate as they compute the means and medians
-# using the posterior mean parameter values and compute the
-# Y mean/median on them instead of computing the Y mean/median on each
-# posterior draw and then getting the means of these nonlinearly-transformed
-# predicted values
 bar <- Mean(bcalpro)
-Predict(bcalpro, endo, fun=bar)
+predict(bcalpro, newdata, fun=bar)
 quant <- Quantile(bcalpro)
-med <- function(lp) quant(lp=lp)
+med <- function(lp, ...) quant(lp=lp, ...)
 Predict(bcalpro, endo, fun=med)
 ```
 
-But the `contrast` function in `rms` now allows one to get posterior distributions of differences in nonlinearly transformed parameters, as follows.
+The `contrast` function in `rms` now allows one to get posterior distributions of differences in nonlinearly transformed parameters, as follows.
 
 ```{r bcalp2}
 k <- contrast(bcalpro, list(endo=levels(endo)[1]),
@@ -263,11 +256,11 @@ With the constrained partial proportional odds model one can examine for a given
 ```{r calcon,mfrow=c(1,2),h=3.5,w=7.5}
 ys <- seq(100, 2500, by=100)
 k <- contrast(bcalp, list(endo='Moderate or Severe Activity'),
-                     list(endo='No or Mild Activity'),  y=ys)
+                     list(endo='No or Mild Activity'),  ycut=ys)
 xl <- 'Calprotectin Cutoff'
 par(mfrow=c(1,2))
-with(k, plot(y, Contrast, xlab=xl, ylab='log OR',    type='l'))
-with(k, plot(y, PP,       xlab=xl, ylab='P(OR > 1)', type='l'))
+with(k, plot(ycut, Contrast, xlab=xl, ylab='log OR',    type='l'))
+with(k, plot(ycut, PP,       xlab=xl, ylab='P(OR > 1)', type='l'))
 ```
 
 ## Binary Regression with Restricted Cubic Splines
@@ -324,6 +317,12 @@ Draw partial effect plots with 0.95 HPD intervals.  Point estimates are posterio
 ggplot(Predict(bsup))
 ```
 
+Compute estimated mortality probabilities at all levels of `dzgroup` adjusting covariates to medians/modes.  Need `funint=FALSE` to tell `Predict` that `fun` is a simple 1-1 function of the linear predictor (unlike `Mean`, `Quantile`, etc.).
+
+```{r peffect2}
+Predict(bsup, dzgroup, fun=plogis, funint=FALSE)
+```
+
 Draw a nomogram from posterior mode parameter values.
 
 ```{r nomogram}
@@ -343,6 +342,8 @@ plot(nomogram(f, fun=plogis, funlabel='P(death)'))
 The proportional odds (PO) assumption is a parallelism assumption reflecting the belief that the effect of baseline variables on, say, $Y \geq 3$ is the same effect on $Y \geq 4$.  To relax that assumption, @pet90par developed the [partial proportional odds model](https://www.jstor.org/stable/2347760) (PPO) model.  The `blrm` function accepts a second model formula in the argument named `ppo` that specifies the subset of predictors for which PO is not to be assumed but for which the model is effectively polytomous (multinomial).  Note that for frequentist modeling the R `VGAM` package handles the PPO model (as will be shown below).  `VGAM` is more flexible than what `blrm` can do in allowing for all sorts of model restrictions.
 
 The presence of the second formula triggers fitting a PPO model.  The default is the unconstrained PPO model, which has $(k - 2) \times q$ extra parameter for $k$ category $Y$ and $q$ equal to the number of columns in the induced design matrix from the second formula.  This is normally too many parameters.  More typically, the _constrained PPO model_ (@pet90par Eq. 6) is used.  This model is fitted when a function is provided as the `cppo` argument.  Generalizing Peterson and Harrell Eq. 6 the `cppo` function can be a continuous function of $Y$ as well as being a discontinuous function such as an indicator variable that allows a category of $Y$ (typically the first or last) to have a special effect of selected covariates.  When $Y$ is continuous, `cppo` would typically be the continuous value of $Y$ or a monotonic function of it.  This induces a model that is akin to having a treatment $\times$ time interaction in a Cox proportional hazards model, or systematic heteroskedasticity in a linear model.  When Y is very skewed, it may be more reasonable to use something like `cppo = function(y) y^(1/3)`.  Note that `blrm` internally centers (by the mean) and scales (by the SD) the function value, so the user need not concern herself with location or scale of the PO-modification function.  Note also that post-fitting functions for estimation and prediction are not implemented for the unconstrained partial PO model.
+
+Note that the `cppo` function used to trigger the use of the constrained PPO model is never evaluated at the lowest value of Y.  That is because in the data likelihood, the probability element for observations at the minimum Y is one minus the probability element at the second lowest value of Y.  So you can't give a special effect at the minimum Y.  If for example you have a scale ordered as death, sick, well and you want to allow for a special effect of a covariate on death, reverse the order of levels in the factor variable representing Y and specify `cppo=function(y) y == 'dead'`.
 
 <a name="uppoex"></a>
 
@@ -482,7 +483,7 @@ k[6] + h(1:5) * k[7]   # close to paper
 dat <- data.frame(tx=levels(d$tx))
 # Get posterior mean and 0.95 HPD intervals for treatment
 # effects at all levels of y
-contrast(fp, list(tx='cisplatin'), list(tx='No cisplatin'), y=1:5)
+contrast(fp, list(tx='cisplatin'), list(tx='No cisplatin'), ycut=1:5)
 Predict(fp, tx)
 ```
 
@@ -530,7 +531,7 @@ Let's generate some data with repeatedly measured outcome per subject where the 
 ```{r re, results='asis'}
 n <- 500   # subjects
 set.seed(2)
-re <- rnorm(n) * 0.25
+re <- rnorm(n) * 0.25   # worked fine also with rnorm(n) * 4
 X <- runif(n)   # baseline covariate, will be duplicated over repeats
 m <- 10         # measurements per subject
 
@@ -623,7 +624,7 @@ or   <- exp(log(0.65) * (tx[id] == 'b') + re[id])
 y   <- integer(n * m)
 for(j in 1 : (n * m)) {
   p    <- pomodm(p=pa, odds.ratio=or[j])
-	y[j] <- sample(0:5, 1, p, replace=TRUE)
+  y[j] <- sample(0:5, 1, p, replace=TRUE)
 }
 Tx <- tx[id]
 table(Tx, y)
@@ -634,6 +635,11 @@ The first Bayesian proportional odds model fitted is the one that exactly matche
 ```{r noabs,results='asis'}
 bst <- blrm(y ~ Tx + cluster(id), file='bst.rds')
 bst
+```
+
+```{r noabsdx}
+stanDx(bst)
+stanDxplot(bst, 'ALL')
 ```
 
 If `time` were to be added to the above model, you'll see that its regression coefficient is very small ($\hat{\beta}=0.009$ in this case), in alignment with the data generating model.

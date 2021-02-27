@@ -1,7 +1,7 @@
 Package: rmsb
 Title: Bayesian Regression Modeling Strategies
-Version: 0.0.1
-Date: 2020-07-25
+Version: 0.0.2
+Date: 2021-02-27
 Authors@R: 
     c(person(given = "Frank",
            family = "Harrell",
@@ -25,10 +25,10 @@ Description: A Bayesian companion to the 'rms' package, 'rmsb' provides Bayesian
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
-URL: https://hbiostat.org/R/rmsb
+URL: https://hbiostat.org/R/rmsb/
 RoxygenNote: 7.1.1
 Biarch: true
-Depends: R (>= 3.4.0), rms (>= 6.0.1)
+Depends: R (>= 3.4.0), rms (>= 6.0.2)
 Imports: methods, Rcpp (>= 0.12.0), RcppParallel (>= 5.0.1), rstan (>=
         2.18.1), rstantools (>= 2.1.1), Hmisc (>= 4.3-0), survival (>=
         3.1-12), ggplot2, MASS, cluster, digest, knitr, loo
@@ -38,7 +38,7 @@ LinkingTo: BH (>= 1.66.0), Rcpp (>= 0.12.0), RcppEigen (>= 0.3.3.3.0),
 Suggests: mice
 SystemRequirements: GNU make
 NeedsCompilation: yes
-Packaged: 2020-07-25 21:44:36 UTC; harrelfe
+Packaged: 2021-02-27 20:08:45 UTC; harrelfe
 Author: Frank Harrell [aut, cre] (<https://orcid.org/0000-0002-8271-5493>),
   Ben Goodrich [ctb] (contributed Stan code),
   Ben Bolker [ctb] (wrote original code that is folded into the
@@ -47,4 +47,4 @@ Author: Frank Harrell [aut, cre] (<https://orcid.org/0000-0002-8271-5493>),
     interval that is folded into the HPDint function)
 Maintainer: Frank Harrell <fh@fharrell.com>
 Repository: CRAN
-Date/Publication: 2020-08-03 10:20:07 UTC
+Date/Publication: 2021-02-27 23:50:02 UTC

@@ -2,7 +2,7 @@
 % Please edit documentation in R/blrm.r
 \name{blrm}
 \alias{blrm}
-\title{blrm}
+\title{Bayesian Binary and Ordinal Logistic Regression}
 \usage{
 blrm(
   formula,
@@ -14,7 +14,9 @@ blrm(
   na.action = na.delete,
   priorsd = rep(100, p),
   priorsdppo = rep(100, pppo),
+  iprior = 0,
   conc = 1/(0.8 + 0.35 * max(k, 3)),
+  ascale = 1,
   psigma = 1,
   rsdmean = if (psigma == 1) 0 else 1,
   rsdsd = 1,
@@ -55,7 +57,11 @@ blrm(
 
 \item{priorsdppo}{vector of prior standard deviations for non-proportional odds parameters.  As with \code{priorsd} the last element is the only one for which the SD corresponds to the original data scale.}
 
+\item{iprior}{specifies whether to use a Dirichlet distribution for the cell probabilities, which induce a more complex prior distribution for the intercepts (\code{iprior=0}, the default), non-informative priors (\code{iprior=1}) directly on the intercept parameters,  or to directly use a t-distribution with 3 d.f. and scale parameter \code{ascale} (\code{iprior=2}).}
+
 \item{conc}{the Dirichlet distribution concentration parameter for the prior distribution of cell probabilities at covariate means.  The default is the reciprocal of 0.8 + 0.35 max(k, 3) where k is the number of Y categories.  The default is chosen to make the posterior mean of the intercepts more closely match the MLE.  For optimizing, the concentration parameter is always 1.0 to obtain results very close to the MLE for providing the posterior mode.}
+
+\item{ascale}{scale parameter for the t-distribution for priors for the intercepts if \code{iprior=2}, defaulting to 1.0}
 
 \item{psigma}{defaults to 1 for a half-t distribution with 4 d.f., location parameter \code{rsdmean} and scale parameter \code{rsdsd}.  Set \code{psigma=2} to use the exponential distribution.}
 
@@ -99,11 +105,9 @@ blrm(
 an \code{rms} fit object of class \code{blrm}, \code{rmsb}, \code{rms} that also contains \code{rstan} results under the name \code{rstan}.  In the \code{rstan} results, which are also used to produce diagnostics, the intercepts are shifted because of the centering of columns of the design matrix done by \code{\link[=blrm]{blrm()}}.  With \code{method='optimizing'} a class-less list is return with these elements: \code{coefficients} (MLEs), \code{beta} (non-intercept parameters on the QR decomposition scale), \code{deviance} (-2 log likelihood), \code{return_code} (see \code{\link[rstan:stanmodel-method-optimizing]{rstan::optimizing()}}), and, if you specified \code{hessian=TRUE} to \code{\link[=blrm]{blrm()}}, the Hessian matrix.  To learn about the scaling of orthogonalized QR design matrix columns, look at the \code{xqrsd} object in the returned object.  This is the vector of SDs for all the columns of the transformed matrix.  Those kept out by the \code{keepsep} argument will have their original SDs.
 }
 \description{
-Bayesian Binary and Ordinal Logistic Regression
+Uses \code{rstan} with pre-compiled Stan code to get posterior draws of parameters from a binary logistic or proportional odds semiparametric ordinal logistic model.  The Stan code internally using the qr decompositon on the design matrix so that highly collinear columns of the matrix do not hinder the posterior sampling.  The parameters are transformed back to the original scale before returning results to R.   Design matrix columns are centered before running Stan, so Stan diagnostic output will have the intercept terms shifted but the results of \code{\link[=blrm]{blrm()}} for intercepts are for the original uncentered data.  The only prior distributions for regression betas are normal with mean zero, and the vector of prior standard deviations is given in \code{priorsd}.  These priors are for the qr-projected design matrix elements, except that the very last element is not changed.  So if one has a single non-interactive linear or binary variable for which a skeptical prior is designed, put that variable last in the model.
 }
 \details{
-Uses \code{rstan} with pre-compiled Stan code to get posterior draws of parameters from a binary logistic or proportional odds semiparametric ordinal logistic model.  The Stan code internally using the qr decompositon on the design matrix so that highly collinear columns of the matrix do not hinder the posterior sampling.  The parameters are transformed back to the original scale before returning results to R.   Design matrix columns are centered before running Stan, so Stan diagnostic output will have the intercept terms shifted but the results of \code{\link[=blrm]{blrm()}} for intercepts are for the original uncentered data.  The only prior distributions for regression betas are normal with mean zero, and the vector of prior standard deviations is given in \code{priorsd}.  These priors are for the qr-projected design matrix elements, except that the very last element is not changed.  So if one has a single non-interactive linear or binary variable for which a skeptical prior is designed, put that variable last in the model.
-
 The partial proportional odds model of Peterson and Harrell (1990) is implemented, and is invoked when the user specifies a second model formula as the \code{ppo} argument.  This formula has no left-hand-side variable, and has right-side variables that are a subset of those in \code{formula} specifying for which predictors the proportional odds assumption is relaxed.
 
 The Peterson and Harrell (1990) constrained partial proportional odds is also implemented, and is usually preferred to the above unconstrained PPO model as it adds a vector of coefficients instead of a matrix of coefficients.  In the constrained PPO model the user provides a function \code{cppo} that computes a score for all observed values of the dependent variable.  For example with a discrete ordinal outcome \code{cppo} may return a value of 1.0 for a specific value of Y and zero otherwise.  That will result in a departure from the proportional odds assumption for just that one level of Y.  The value returned by \code{cppo} at the lowest Y value is never used in any case.
