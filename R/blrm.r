@@ -43,7 +43,7 @@
 ##' @return an `rms` fit object of class `blrm`, `rmsb`, `rms` that also contains `rstan` results under the name `rstan`.  In the `rstan` results, which are also used to produce diagnostics, the intercepts are shifted because of the centering of columns of the design matrix done by [blrm()].  With `method='optimizing'` a class-less list is return with these elements: `coefficients` (MLEs), `beta` (non-intercept parameters on the QR decomposition scale), `deviance` (-2 log likelihood), `return_code` (see [rstan::optimizing()]), and, if you specified `hessian=TRUE` to [blrm()], the Hessian matrix.  To learn about the scaling of orthogonalized QR design matrix columns, look at the `xqrsd` object in the returned object.  This is the vector of SDs for all the columns of the transformed matrix.  Those kept out by the `keepsep` argument will have their original SDs.
 ##' @examples
 ##' \dontrun{
-##'   getHdata(Titanic3)
+##'   getHdata(titanic3)
 ##'   dd <- datadist(titanic3); options(datadist='dd')
 ##'   f <- blrm(survived ~ (rcs(age, 5) + sex + pclass)^2, data=titanic3)
 ##'   f                   # model summary using print.blrm
@@ -90,8 +90,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   callenv <- parent.frame()   # don't delay these evaluations
   subset  <- if(! missing(subset )) eval(substitute(subset),  data, callenv)
 
-  data <-
-    rms::modelData(data, formula, ppo,
+  data <- rms::modelData(data, formula, ppo,
               subset = subset,
               na.action=na.action, callenv=callenv)
     if(length(ppo)) {
@@ -150,8 +149,10 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   mmcolnames <- atr$mmcolnames
 
   Y       <- model.extract(X, 'response')
-  isOcens <- inherits(Y, 'Ocens')
+  ## model.extract (which calls model.response) not keeping class
+  isOcens <- inherits(Y, 'Ocens') || NCOL(Y) == 2
   Ncens   <- c(left=0, right=0, interval=0)
+
   if(! isOcens) {
     Y  <- Ocens(Y)
     ay <- attributes(Y)
@@ -244,6 +245,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
   ## Go to trouble of keeping list elements in order from previous
   ## version so that existing models fitted with iprior=0 will not
   ## have to be re-run
+
 	d <- if(iprior == 0)
          list(X=Xs,
               y=Y,
@@ -326,7 +328,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL, keepsep=NULL,
     # Temporarily make concentration parameter = 1.0
     d$conc <- 1.0
 
-    g <- rstan::optimizing(mod, data=d, init=inito)
+    g <- rstan::optimizing(mod, data=d, init=inito, ...)
     d$conc <- conc   # restore
     if(g$return_code != 0) {
       warning(paste('Optimizing did not work; return code', g$return_code,
@@ -1441,3 +1443,26 @@ as.data.frame.Ocens <- function(x, row.names = NULL, optional = FALSE, ...) {
   if(! optional) names(value) <- deparse(substitute(x))[[1]]
   structure(value, row.names=row.names, class='data.frame')
 }
+
+## TODO  ??
+
+##' Subset Method for `Ocens` Objects
+##'
+##' Subsets an `Ocens` object, preserving its special attributes.  Attributes are not updated.  In the future such updating should be implemented.
+##' @title Ocens
+##' @param x an `Ocens` object
+##' @param rows logical or integer vector
+##' @param cols logical or integer vector
+##' @param ... ignored
+##' @return new `Ocens` object
+##' @author Frank Harrell
+##' @md
+##' @export
+'[.Ocens' <- function(x, rows=1:d[1], cols=1:d[2], ...) {
+  d <- dim(x)
+  at <- attributes(x)[c('levels', 'freq', 'mid')]
+  x <- NextMethod('[')
+  attributes(x) <- c(attributes(x), at)
+  class(x) <- 'Ocens'
+  x
+  }

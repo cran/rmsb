@@ -1,10 +1,10 @@
-9bb56eeb2d3dee338dc3c38138661f80 *DESCRIPTION
-ca44f8a16f6c0bac5b1ac844b46ad371 *NAMESPACE
-4ce31401dd843a0ee47d2f852414fc4a *NEWS
-866890673e9dc2809cd1e89b644873dd *R/blrm.r
+2c5283f982cf920b59198c9d1f62fb74 *DESCRIPTION
+3402b1eef2adf8853e828d0949ed36c3 *NAMESPACE
+8b2ffb544c8fc0732c0fe83080fbcd72 *NEWS
+33a95b41ebfdd4f2045191cabce7b43a *R/blrm.r
 e0a3892609ea9acba68e69670db742aa *R/rmsb-package.R
 aa1f77a1c6b1e3a4783479eec7b71a2a *R/stackMI.r
-c1eac13c3413dea3bad6dee275303312 *R/stanMisc.r
+aa100b5d731290a7a22c3d7dcec63063 *R/stanMisc.r
 fcd152d249ec4752bd23bb56f7f8cdb8 *R/stanmodels.R
 d41d8cd98f00b204e9800998ecf8427e *README
 1cc60bdd8610449d30184e0bb374bf46 *configure
@@ -12,7 +12,7 @@ d41d8cd98f00b204e9800998ecf8427e *README
 855c064dbf8deaff96c8dc8a87169109 *inst/include/stan_meta_header.hpp
 72287e37d73ca8e1210c89afae62af54 *inst/stan/include/license.stan
 886ee4e6a2d1c5397e0ce69baf144907 *inst/stan/lrmconppo.stan
-2c9b8846ede56aae8a4b2909656b0728 *inst/stan/lrmconppot.stan
+53237d2c7588ee4581f4e396ae163361 *inst/stan/lrmconppot.stan
 abc297f9208f787a05a441ff29a9ea66 *inst/stan/lrmcppo.stan
 ed169ff6da8152e5006370b1da3a4026 *inst/tests/blrm-cens.r
 4414a8fd2378e3e2775e5c9e90826992 *inst/tests/blrm-cluster-po.r
@@ -21,7 +21,7 @@ dcf98dc59fceb68cd041a92a1422c37b *inst/tests/blrm-contrast.r
 e5403b1f5285728ac7889ac2217dabd7 *inst/tests/blrm-po.r
 fbe5d784174fbb938b67d6d8c4c282f4 *inst/tests/blrm-ppo.r
 3fb888969fce05e367790c887aace6ba *inst/tests/blrm-pred.r
-34d13344e0110d66f9e0dd3f4cf797db *inst/tests/blrm.Rmd
+8dcd977b0d290802e1d5785315a263a7 *inst/tests/blrm.Rmd
 149be4e7e68f0515a212eafcaa74deb9 *inst/tests/fitted-ind.r
 a0da653b0a640e9fd1a6111c622acb11 *inst/tests/summary.r
 72a746d38f3b2fa28df1d6252ba94616 *man/ExProb.blrm.Rd
@@ -31,13 +31,13 @@ d6056f2b7786ecfadb3fc7fe109f4839 *man/HPDint.Rd
 5fbce2ed70355dd5d27ea88bef9ce7fa *man/PostF.Rd
 debdd896d5a99341d3e6c36b14ae66f3 *man/Quantile.blrm.Rd
 e548e091922dba6ca38ea7ad585113d2 *man/as.data.frame.Ocens.Rd
-3ba51a84389acd40d1b871b345b8d749 *man/blrm.Rd
+ae7c3087f1fd4035ba780622532a3743 *man/blrm.Rd
 24aa99e0602217880050b1bd9249e0a4 *man/blrmStats.Rd
 16dd14133b936f258aca256d4d9f32c0 *man/coef.rmsb.Rd
 c01957a4ba55b94a5bac8d7731430dda *man/compareBmods.Rd
 10b7b0f4e58749eccc77ce01d365db16 *man/distSym.Rd
 562892e9a08ec0c87b37d07b0ae6e109 *man/getParamCoef.Rd
-f7f753a42f8064eee9a4b972ab8d9627 *man/pdensityContour.Rd
+db0d5684a5bd2cc9476b6c4bbd88b5f4 *man/pdensityContour.Rd
 21ceb946c9fb1854bc938b0028c66ec5 *man/plot.PostF.Rd
 1046932ca980cc101a3336ddf11d534e *man/plot.rmsb.Rd
 d6725bd996ceb9ccff85fecc80adfd41 *man/predict.blrm.Rd
@@ -51,6 +51,7 @@ d7dc7cbf4198586573f76e569e8b7694 *man/print.rmsb.Rd
 a3d48c121302a8f7bb192d7da6cb3f2e *man/stanDx.Rd
 e6eb8a1ce28ebae25bbdd3dfaab16f88 *man/stanDxplot.Rd
 1ecd0e956b1ac0c1f663dde26438397d *man/stanGet.Rd
+f8ce9b40610703d9c94927d296b29f0d *man/sub-.Ocens.Rd
 86f9ace191769ae8693631e05a3d2fc5 *man/tauFetch.Rd
 e8fe5bf6c7b8e4fd6afdff28ea1203cc *man/vcov.rmsb.Rd
 ec1f7adc46f14d6b1c5481244554415e *src/Makevars

@@ -1,7 +1,7 @@
 Package: rmsb
 Title: Bayesian Regression Modeling Strategies
-Version: 0.0.2
-Date: 2021-02-27
+Version: 0.1.0
+Date: 2022-04-12
 Authors@R: 
     c(person(given = "Frank",
            family = "Harrell",
@@ -21,10 +21,9 @@ Authors@R:
 			       family = "Bates",
 						 role = "ctb",
 						 comment = "write original code for highest posterior density interval that is folded into the HPDint function"))
-Description: A Bayesian companion to the 'rms' package, 'rmsb' provides Bayesian model fitting, post-fit estimation, and graphics.  It implements Bayesian regression models whose fit objects can be processed by 'rms' functions such as 'contrast()', 'summary()', 'Predict()', 'nomogram()', and 'latex()'.  The fitting function currently implemented in the package is 'blrm()' for Bayesian logistic binary and ordinal regression with optional clustering, censoring, and departures from the proportional odds assumption using the partial proportional odds model of Peterson and Harrell (1990) <doi:10.2307/2347760>.
+Description: A Bayesian companion to the 'rms' package, 'rmsb' provides Bayesian model fitting, post-fit estimation, and graphics.  It implements Bayesian regression models whose fit objects can be processed by 'rms' functions such as 'contrast()', 'summary()', 'Predict()', 'nomogram()', and 'latex()'.  The fitting function currently implemented in the package is 'blrm()' for Bayesian logistic binary and ordinal regression with optional clustering, censoring, and departures from the proportional odds assumption using the partial proportional odds model of Peterson and Harrell (1990) <https://www.jstor.org/stable/2347760>.
 License: GPL (>= 3)
 Encoding: UTF-8
-LazyData: true
 URL: https://hbiostat.org/R/rmsb/
 RoxygenNote: 7.1.1
 Biarch: true
@@ -38,7 +37,7 @@ LinkingTo: BH (>= 1.66.0), Rcpp (>= 0.12.0), RcppEigen (>= 0.3.3.3.0),
 Suggests: mice
 SystemRequirements: GNU make
 NeedsCompilation: yes
-Packaged: 2021-02-27 20:08:45 UTC; harrelfe
+Packaged: 2022-04-12 12:31:30 UTC; harrelfe
 Author: Frank Harrell [aut, cre] (<https://orcid.org/0000-0002-8271-5493>),
   Ben Goodrich [ctb] (contributed Stan code),
   Ben Bolker [ctb] (wrote original code that is folded into the
@@ -47,4 +46,4 @@ Author: Frank Harrell [aut, cre] (<https://orcid.org/0000-0002-8271-5493>),
     interval that is folded into the HPDint function)
 Maintainer: Frank Harrell <fh@fharrell.com>
 Repository: CRAN
-Date/Publication: 2021-02-27 23:50:02 UTC
+Date/Publication: 2022-04-12 16:00:02 UTC
