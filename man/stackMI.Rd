@@ -8,13 +8,14 @@ stackMI(
   formula,
   fitter,
   xtrans,
-  data,
+  data = NULL,
   n.impute = xtrans$n.impute,
-  dtrans,
-  derived,
-  subset,
+  dtrans = NULL,
+  derived = NULL,
+  subset = NULL,
   refresh = 0,
   progress = if (refresh > 0) "stan-progress.txt" else "",
+  file = NULL,
   ...
 )
 }
@@ -38,6 +39,8 @@ stackMI(
 \item{refresh}{see \link[rstan:stanmodel-method-sampling]{rstan::sampling}.  The default is 0, indicating that no progress notes are output.  If \code{refresh > 0} and \code{progress} is not \code{''}, progress output will be appended to file \code{progress}.  The default file name is \code{'stan-progress.txt'}.}
 
 \item{progress}{see \code{refresh}.  Defaults to \code{''} if \code{refresh = 0}.  Note: If running interactively but not under RStudio, \code{rstan} will open a browser window for monitoring progress.}
+
+\item{file}{optional file name in which to store results in RDS format.  If \code{file} is given and it already exists, and none of the arguments to \code{stackMI} have changed since that fit, the fit object from \code{file} is immediately returned.  So if the model, data, and imputations have not changed nothing needs to be computed.}
 
 \item{...}{arguments passed to \code{fitter}}
 }
