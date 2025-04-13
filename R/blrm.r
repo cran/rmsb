@@ -10,7 +10,7 @@
 ##'
 ##' When using the `cmdstan` backend, `cmdstanr` will need to compile the Stan code once per computer, only recompiling the code when the Stan source code changes.  By default the compiled code is stored in directory `.rmsb` under your home directory.  Specify `options(rmsbdir=)` to specify a different location.  You should specify `rmsbdir` to be in a project-specific location if you want to archive code for old projects.
 ##'
-##' If you want to run MCMC sampling even when no inputs or Stan code have changed, i.e., to use a different random number seed for the sampling process, remove the `file` before running `blrm`.
+##' If you want to run MCMC sampling even when no inputs or Stan code have changed, i.e., to use a different random number seed for the sampling process when you did not specify `sampling.args(seed=...)`, remove the `file` before running `blrm`.
 ##'
 ##' Set `options(rmsbmsg=FALSE)` to suppress certain information messages.
 ##'
@@ -47,9 +47,9 @@
 ##' @param standata set to `TRUE` to return the Stan data list and not run the model
 ##' @param debug set to `TRUE` to output timing and progress information to /tmp/debug.txt
 ##' @param file a file name for a `saveRDS`-created file containing or to contain the saved fit object.  If `file` is specified and the file does not exist, it will be created right before the fit object is returned, less the large `rstan` object.  If the file already exists, its stored `md5` hash string `datahash` fit object component is retrieved and compared to that of the current `rstan` inputs.  If the data to be sent to `rstan`, the priors, and all sampling and optimization options and stan code are identical, the previously stored fit object is immediately returned and no new calculatons are done.
-##' @param sampling.args a list containing parameters to pass to [rstan::sampling()] or to the `rcmdstan` `sample` function, other than these arguments: `iter, warmup, chains, refresh, init` which are already arguments to `blrm`
+##' @param sampling.args a list containing parameters to pass to [rstan::sampling()] or to the `rcmdstan` `sample` function, other than these arguments: `iter, warmup, chains, refresh, init` which are already arguments to `blrm`.  A good use of this is `sampling.args=list(seed=3)` to get reproducible sampling.
 ##' @param showopt set to `TRUE` to show Stan optimizer output
-##' @param ... passed to [rstan::optimizing()] or the `rcmdstan` optimizing function.  The `seed` parameter is a popular example.
+##' @param ... passed to [rstan::optimizing()] or the `rcmdstan` optimizing function.  `sampling.args` is usually used instead.
 ##' @return an `rms` fit object of class `blrm`, `rmsb`, `rms` that also contains `rstan` or `cmdstanr` results under the name `rstan`.  In the `rstan` results, which are also used to produce diagnostics, the intercepts are shifted because of the centering of columns of the design matrix done by [blrm()].  With `method='optimizing'` a class-less list is return with these elements: `coefficients` (MLEs), `beta` (non-intercept parameters on the QR decomposition scale), `deviance` (-2 log likelihood), `return_code` (see [rstan::optimizing()]), and, if you specified `hessian=TRUE` to [blrm()], the Hessian matrix.  To learn about the scaling of orthogonalized QR design matrix columns, look at the `xqrsd` object in the returned object.  This is the vector of SDs for all the columns of the transformed matrix.  The returned element `sampling_time` is the elapsed time for running posterior samplers, in seconds.  This will be just a little more than the time for running one CPU core for one chain.
 ##' @examples
 ##' \dontrun{
@@ -179,10 +179,11 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
   Ncens   <- c(left=0, right=0, interval=0)
 
   if(! isOcens) {
-    Y  <- Ocens(Y)
+    Y  <- Ocens2ord(Ocens(Y))
     ay <- attributes(Y)
     k  <- length(ay$levels)
   } else {
+    Y  <- Ocens2ord(Y)
     ay <- attributes(Y)
     k  <- length(ay$levels)
     a  <- Y[, 1]
@@ -319,7 +320,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
   d$Z <- if(pppo) Zs else matrix(0., nrow=n, ncol=0)
   d$q <- pppo
 
-  
+
   d$cn <- d$cn2 <- 0L
   d$cmus <- d$cmus2 <- d$csds <- d$csds2 <- array(numeric(0))
   d$C  <- array(0., c(0, p))
@@ -405,7 +406,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
     con     <- pc$contrast
     if(! length(con))        stop('must include contrast in pcontrast')
     if(! is.expression(con)) stop('contrast must be expression()')
-    pc[c('weights', 'expand', 'mu', 'sd', 'contrast')] <- NULL
+    pc[c('weights', 'expand', 'mu', 'sd', 'contrast', 'ycut')] <- NULL
     cnam <- names(pc)
     if(! length(cnam) || any(cnam == ''))
       stop('predictor setting lists in pcontrast must be named')
@@ -488,8 +489,10 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
       ta     <- nam[grep('tau\\[',   nam)]
       alphas <- alphasign * parm[al]
       betas  <- parm[be]
+      if(getOption('blrmdebugqr', FALSE)) prn(llist(betas, wqrX$Rinv), file='/tmp/z')
       betas  <- matrix(betas, nrow=1) %*% t(wqrX$Rinv)
       names(betas)  <- atr$colnames
+      if(getOption('blrmdebugqr', FALSE)) prn(betas, file='/tmp/z')
       alphas <- alphas - sum(betas * xbar)
       if(pppo) {
         if(length(cppo)) { # constrained PPO model
@@ -592,7 +595,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
       namtau <- paste(xt, 'x f(y)')
       taus   <- draws[, ta, drop=FALSE]
       taus   <- taus %*% t(wqrZ$Rinv)
-               
+
       tauInfo <- data.frame(name=namtau, x=xt)
       ## Make sure mtaus is not referenced later when length(cppo) > 0
     }
@@ -714,7 +717,7 @@ blrm <- function(formula, ppo=NULL, cppo=NULL,
              opt=opt, diagnostics=diagnostics,
              iter=iter, chains=chains, stancode=stancode, datahash=datahash,
              backend=backend, sampling_time=sampling_time)  )
-  
+
   if(iprior == 0) res$conc   <- conc
   if(iprior == 2) res$ascale <- ascale
 	class(res) <- c('blrm', 'rmsb', 'rms')
@@ -1084,7 +1087,7 @@ predict.blrm <-
 
   ylevels   <- object$ylevels
   ycutgiven <- length(ycut) > 0
-  if(kintgiven && ycutgiven) stop('may only specify one of kint, ycut')
+  # if(kintgiven && ycutgiven) stop('may only specify one of kint, ycut')
   if(! ycutgiven) ycut <- ylevels[kint + 1]
   if(ycutgiven) {
     if(type == 'lp' && length(ycut) > 1)
@@ -1216,9 +1219,9 @@ predict.blrm <-
 
   ## Get cumulative probability function used
   link    <- object$link
-  cumprob <- rms::probabilityFamilies[[link]]$cumprob
-
-  if(ns == 1) return(cumprob(ints + betas %*% t(X)))  # binary logistic model
+  cumprob <- eval(rms::probabilityFamilies[[link]][1])
+  # Handle binary logistic model
+  if(ns == 1) return(cumprob(sweep(betas %*% t(X), 1, ints[, 1], '+')))
 
   cnam  <- cn[1:ns]
   # First intercept corresponds to second distinct Y value
@@ -1337,7 +1340,7 @@ Mean.blrm <- function(object, codes=FALSE,
 
   ## Get cumulative probability function used
   link    <- object$link
-  cumprob <- probabilityFamilies[[link]]$cumprob
+  cumprob <- eval(probabilityFamilies[[link]][1])
 
   cof <- coef(object, stat=posterior.summary)
   intercepts <- cof[1 : ns]
@@ -1401,8 +1404,8 @@ Quantile.blrm <- function(object, codes=FALSE,
   ## Get cumulative probability function used
   link    <- object$link
   pfam    <- rms::probabilityFamilies[[link]]
-  cumprob <- pfam$cumprob
-  inverse <- pfam$inverse
+  cumprob <- eval(pfam[1])
+  inverse <- eval(pfam[2])
 
   cof        <- coef(object, stat=posterior.summary)
   intercepts <- cof[1 : ns]
@@ -1478,7 +1481,7 @@ ExProb.blrm <- function(object,
   ## Get cumulative probability function used
   link    <- object$link
   pfam    <- rms::probabilityFamilies[[link]]
-  cumprob <- pfam$cumprob
+  cumprob <- eval(pfam[1])
 
   ylevels    <- object$ylevels
   cof        <- coef(object, stat=posterior.summary)
@@ -1579,97 +1582,6 @@ tauFetch <- function(fit, intercept, what=c('tau', 'nontau', 'both')) {
   }
 }
 
-##' Censored Ordinal Variable
-##'
-##' Creates a 2-column integer matrix that handles left- right- and interval-censored ordinal or continuous values for use in [blrm()].  A pair of values `[a, b]` represents an interval-censored value known to be in the interval `[a, b]` inclusive of `a` and `b`.  It is assumed that all distinct values are observed as uncensored for at least one observation.  When both input variables are `factor`s it is assume that the one with the higher number of levels is the one that correctly specifies the order of levels, and that the other variable does not contain any additional levels.  If the variables are not `factor`s it is assumed their original values provide the orderings.  Since all values that form the left or right endpoints of an interval censored value must be represented in the data, a left-censored point is is coded as `a=1` and a right-censored point is coded as `b` equal to the maximum observed value.  If the maximum observed value is not really the maximum possible value, everything still works except that predictions involving values above the highest observed value cannot be made.  As with most censored-data methods, [blrm()] assumes that censoring is independent of the response variable values that would have been measured had censoring not occurred.
-##' @param a vector representing a `factor`, numeric, or alphabetically ordered character strings
-##' @param b like `a`.  If omitted, it copies `a`, representing nothing but uncensored values
-##' @return a 2-column integer matrix of class `"Ocens"` with an attribute `levels` (ordered).  When the original variables were `factor`s, these are factor levels, otherwise are numerically or alphabetically sorted distinct (over `a` and `b` combined) values.  When the variables are not factors and are numeric, another attribute `median` is also returned.  This is the median of the uncensored values.  When the variables are factor or character, the median of the integer versions of variables for uncensored observations is returned as attribute `mid`.  A final attribute `freq` is the vector of frequencies of occurrences of all uncensored values.  `freq` aligns with `levels`.
-##' @author Frank Harrell
-##' @export
-Ocens <- function(a, b=a) {
-  nf <- is.factor(a) + is.factor(b)
-  if(nf == 1)
-    stop('one of a and b is a factor and the other is not')
-
-  uncensored <- ! is.na(a) & ! is.na(b) & (a == b)
-  if(! any(uncensored)) stop('no uncensored observations')
-  ymed <- if(is.numeric(a)) median(a[uncensored])
-
-  if(nf == 0) {
-    num <- is.numeric(a) + is.numeric(b)
-    if(num == 1) stop('one of a and b is numeric and the other is not')
-    ## Since neither variable is a factor we can assume they are ordered
-    ## numerics or use standard character string ordering
-    ## Combine distinct values and create an nx2 matrix of integers
-    u <- sort(unique(c(a, b)))
-    u <- u[! is.na(u)]
-    if(any(b < a)) stop('some values of b are less than corresponding a values')
-    a    <- match(a, u)
-    b    <- match(b, u)
-    freq <- tabulate(a[uncensored], nbins=length(u))
-    return(structure(cbind(a, b), class='Ocens', levels=u, freq=freq, median=ymed))
-  }
-  alev <- levels(a)
-  blev <- levels(b)
-  ## Cannot just pool the levels because ordering would not be preserved
-  if(length(alev) >= length(blev)) {
-    master <- alev
-    other  <- blev
-  } else{
-    master <- blev
-    other  <- alev
-  }
-  if(any(other %nin% master))
-    stop('a variable has a level not found in the other variable')
-  a <- match(as.character(a), master)
-  b <- match(as.character(b), master)
-  if(any(b < a)) stop('some values of b are less than corresponding a values')
-  freq <- tabulate(a[uncensored], nbins=length(master))
-  mid  <- quantile(a[uncensored], probs=.5, type=1L)
-  structure(cbind(a, b), class='Ocens', levels=master, freq=freq, mid=mid)
-}
-
-##' Convert `Ocens` Object to Data Frame to Facilitate Subset
-##'
-##' Converts an `Ocens` object to a data frame so that subsetting will preserve all needed attributes
-##' @param x an `Ocens` object
-##' @param row.names optional vector of row names
-##' @param optional set to `TRUE` if needed
-##' @param ... ignored
-##' @return data frame containing a 2-column integer matrix with attributes
-##' @author Frank Harrell
-##' @export
-as.data.frame.Ocens <- function(x, row.names = NULL, optional = FALSE, ...) {
-  nrows <- NROW(x)
-  row.names <- if(optional) character(nrows) else as.character(1:nrows)
-  value <- list(x)
-  if(! optional) names(value) <- deparse(substitute(x))[[1]]
-  structure(value, row.names=row.names, class='data.frame')
-}
-
-## TODO  ??
-
-##' Subset Method for `Ocens` Objects
-##'
-##' Subsets an `Ocens` object, preserving its special attributes.  Attributes are not updated.  In the future such updating should be implemented.
-##' @title Ocens
-##' @param x an `Ocens` object
-##' @param rows logical or integer vector
-##' @param cols logical or integer vector
-##' @param ... ignored
-##' @return new `Ocens` object
-##' @author Frank Harrell
-##' @md
-##' @export
-'[.Ocens' <- function(x, rows=1:d[1], cols=1:d[2], ...) {
-  d <- dim(x)
-  at <- attributes(x)[c('levels', 'freq', 'mid')]
-  x <- NextMethod('[')
-  attributes(x) <- c(attributes(x), at)
-  class(x) <- 'Ocens'
-  x
-  }
 
 
 ##' Cluster Function for Random Effects
